@@ -1,30 +1,25 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
-const fs = require('fs');
+const mysql = require('mysql2/promise');
 
 export default async function handler(req, res) {
     if (req.method !== 'GET') {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    // Garantir que o diretório database existe
-    const dbDir = path.resolve(process.cwd(), 'database');
-    if (!fs.existsSync(dbDir)) {
-        fs.mkdirSync(dbDir, { recursive: true });
-    }
+    // Configuração do MySQL
+    const dbConfig = {
+        host: 'quase24horas.top',
+        user: process.env.DB_USER || 'root',
+        password: process.env.DB_PASSWORD || '',
+        database: process.env.DB_NAME || 'catalogo_maranata',
+        port: process.env.DB_PORT || 3306
+    };
     
-    const dbPath = path.resolve(dbDir, 'produtos.db');
-    console.log('Caminho do banco stats:', dbPath);
+    let connection;
     
-    const db = new sqlite3.Database(dbPath, (err) => {
-        if (err) {
-            console.error('Erro ao conectar ao banco stats:', err.message);
-        } else {
-            console.log('Conectado ao banco SQLite para stats');
-        }
-    });
-
     try {
+        connection = await mysql.createConnection(dbConfig);
+        console.log('Conectado ao MySQL para stats');
+
         const queries = [
             'SELECT COUNT(*) as total FROM produtos',
             'SELECT COUNT(DISTINCT categoria) as categorias FROM produtos',
@@ -32,16 +27,12 @@ export default async function handler(req, res) {
             'SELECT SUM(estoque) as total_estoque FROM produtos'
         ];
 
-        const results = await Promise.all(queries.map(query => 
-            new Promise((resolve, reject) => {
-                db.get(query, (err, row) => {
-                    if (err) reject(err);
-                    else resolve(row);
-                });
-            })
-        ));
+        const results = await Promise.all(queries.map(async (query) => {
+            const [rows] = await connection.execute(query);
+            return rows[0];
+        }));
 
-        db.close();
+        await connection.end();
 
         res.json({
             total_produtos: results[0].total,
@@ -51,7 +42,7 @@ export default async function handler(req, res) {
         });
 
     } catch (error) {
-        db.close();
+        if (connection) await connection.end();
         console.error('Erro ao buscar estatísticas:', error);
         res.status(500).json({ error: 'Erro interno do servidor' });
     }
