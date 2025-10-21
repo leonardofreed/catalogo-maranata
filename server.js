@@ -24,8 +24,113 @@ const db = new sqlite3.Database(dbPath, (err) => {
         console.error('Caminho tentado:', dbPath);
     } else {
         console.log('Conectado ao banco de dados SQLite.');
+        // Garantir que as tabelas existam
+        initializeDatabase();
     }
 });
+
+// Função para inicializar o banco de dados
+function initializeDatabase() {
+    db.serialize(() => {
+        // Criar tabela de produtos
+        db.run(`
+            CREATE TABLE IF NOT EXISTS produtos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome TEXT NOT NULL,
+                descricao TEXT,
+                preco DECIMAL(10,2) NOT NULL,
+                categoria TEXT NOT NULL,
+                estoque INTEGER DEFAULT 0,
+                imagem_url TEXT,
+                data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP,
+                data_atualizacao DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `, (err) => {
+            if (err) {
+                console.error('Erro ao criar tabela produtos:', err.message);
+            } else {
+                console.log('Tabela produtos verificada/criada.');
+            }
+        });
+
+        // Criar tabela de faixas de CEP
+        db.run(`
+            CREATE TABLE IF NOT EXISTS faixas_cep (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome TEXT NOT NULL,
+                cep_inicio TEXT NOT NULL,
+                cep_fim TEXT NOT NULL,
+                valor_frete DECIMAL(10,2) NOT NULL,
+                ativo BOOLEAN DEFAULT 1,
+                data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP,
+                data_atualizacao DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `, (err) => {
+            if (err) {
+                console.error('Erro ao criar tabela faixas_cep:', err.message);
+            } else {
+                console.log('Tabela faixas_cep verificada/criada.');
+                insertExampleData();
+                insertFreteExampleData();
+            }
+        });
+
+        // Criar tabela de configurações
+        db.run(`
+            CREATE TABLE IF NOT EXISTS settings (
+                id INTEGER PRIMARY KEY DEFAULT 1,
+                whatsapp_number TEXT,
+                whatsapp_message TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `, (err) => {
+            if (err) {
+                console.error('Erro ao criar tabela settings:', err.message);
+            } else {
+                console.log('Tabela settings verificada/criada.');
+            }
+        });
+    });
+}
+
+// Função para inserir dados de exemplo
+function insertExampleData() {
+    db.get('SELECT COUNT(*) as count FROM produtos', (err, row) => {
+        if (err) {
+            console.error('Erro ao verificar dados:', err.message);
+            return;
+        }
+        
+        if (row.count === 0) {
+            console.log('Inserindo dados de exemplo...');
+            
+            const produtosExemplo = [
+                ['Smartphone Samsung Galaxy', 'Smartphone com tela de 6.1 polegadas, 128GB de armazenamento', 1299.99, 'Eletrônicos', 10, 'https://via.placeholder.com/300x200?text=Smartphone'],
+                ['Notebook Dell Inspiron', 'Notebook com processador Intel i5, 8GB RAM, 256GB SSD', 2499.99, 'Eletrônicos', 5, 'https://via.placeholder.com/300x200?text=Notebook'],
+                ['Camiseta Básica', 'Camiseta 100% algodão, disponível em várias cores', 29.99, 'Roupas', 50, 'https://via.placeholder.com/300x200?text=Camiseta'],
+                ['Tênis Esportivo', 'Tênis para corrida com tecnologia de amortecimento', 199.99, 'Calçados', 25, 'https://via.placeholder.com/300x200?text=Tênis'],
+                ['Livro JavaScript', 'Livro completo sobre programação JavaScript', 89.99, 'Livros', 15, 'https://via.placeholder.com/300x200?text=Livro']
+            ];
+            
+            const stmt = db.prepare(`
+                INSERT INTO produtos (nome, descricao, preco, categoria, estoque, imagem_url)
+                VALUES (?, ?, ?, ?, ?, ?)
+            `);
+            
+            produtosExemplo.forEach(produto => {
+                stmt.run(produto, (err) => {
+                    if (err) {
+                        console.error('Erro ao inserir produto:', err.message);
+                    }
+                });
+            });
+            
+            stmt.finalize();
+            console.log('Dados de exemplo inseridos com sucesso!');
+        }
+    });
+}
 
 // Rotas da API
 
@@ -209,151 +314,46 @@ app.get('/api/stats', (req, res) => {
     });
 });
 
-// Criar tabela de faixas de CEP se não existir
-db.serialize(() => {
-    db.run(`
-        CREATE TABLE IF NOT EXISTS faixas_cep (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nome TEXT NOT NULL,
-            cep_inicio TEXT NOT NULL,
-            cep_fim TEXT NOT NULL,
-            valor_frete DECIMAL(10,2) NOT NULL,
-            ativo BOOLEAN DEFAULT 1,
-            data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP,
-            data_atualizacao DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    `, (err) => {
+// Inserir dados de exemplo de faixas de CEP
+function insertFreteExampleData() {
+    db.get('SELECT COUNT(*) as count FROM faixas_cep', (err, row) => {
         if (err) {
-            console.error('Erro ao criar tabela faixas_cep:', err.message);
-        } else {
-            console.log('Tabela faixas_cep verificada/criada.');
-            
-            // Verificar se a tabela tem a coluna prazo_dias e removê-la se existir
-            db.all("PRAGMA table_info(faixas_cep)", (err, columns) => {
-                if (err) {
-                    console.error('Erro ao verificar estrutura da tabela:', err.message);
-                    return;
-                }
-                
-                const hasPrazoDias = columns.some(col => col.name === 'prazo_dias');
-                if (hasPrazoDias) {
-                    console.log('Removendo coluna prazo_dias da tabela...');
-                    
-                    // Criar nova tabela sem prazo_dias
-                    db.run(`
-                        CREATE TABLE faixas_cep_new (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            nome TEXT NOT NULL,
-                            cep_inicio TEXT NOT NULL,
-                            cep_fim TEXT NOT NULL,
-                            valor_frete DECIMAL(10,2) NOT NULL,
-                            ativo BOOLEAN DEFAULT 1,
-                            data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP,
-                            data_atualizacao DATETIME DEFAULT CURRENT_TIMESTAMP
-                        )
-                    `, (err) => {
-                        if (err) {
-                            console.error('Erro ao criar nova tabela:', err.message);
-                            return;
-                        }
-                        
-                        // Copiar dados existentes (exceto prazo_dias)
-                        db.run(`
-                            INSERT INTO faixas_cep_new (id, nome, cep_inicio, cep_fim, valor_frete, ativo, data_criacao, data_atualizacao)
-                            SELECT id, nome, cep_inicio, cep_fim, valor_frete, ativo, data_criacao, data_atualizacao
-                            FROM faixas_cep
-                        `, (err) => {
-                            if (err) {
-                                console.error('Erro ao copiar dados:', err.message);
-                                return;
-                            }
-                            
-                            // Remover tabela antiga e renomear nova
-                            db.run(`DROP TABLE faixas_cep`, (err) => {
-                                if (err) {
-                                    console.error('Erro ao remover tabela antiga:', err.message);
-                                    return;
-                                }
-                                
-                                db.run(`ALTER TABLE faixas_cep_new RENAME TO faixas_cep`, (err) => {
-                                    if (err) {
-                                        console.error('Erro ao renomear tabela:', err.message);
-                                        return;
-                                    }
-                                    console.log('Coluna prazo_dias removida com sucesso!');
-                                    
-                                    // Inserir dados de exemplo após migração
-                                    insertExampleData();
-                                });
-                            });
-                        });
-                    });
-                } else {
-                    // Inserir dados de exemplo se a tabela estiver vazia
-                    insertExampleData();
-                }
-            });
+            console.error('Erro ao verificar dados de frete:', err.message);
+            return;
         }
-    });
-    
-    // Criar tabela de configurações se não existir
-    db.run(`
-        CREATE TABLE IF NOT EXISTS settings (
-            id INTEGER PRIMARY KEY DEFAULT 1,
-            whatsapp_number TEXT,
-            whatsapp_message TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    `, (err) => {
-        if (err) {
-            console.error('Erro ao criar tabela settings:', err.message);
-        } else {
-            console.log('Tabela settings verificada/criada.');
-        }
-    });
-
-    // Função para inserir dados de exemplo
-    function insertExampleData() {
-        db.get('SELECT COUNT(*) as count FROM faixas_cep', (err, row) => {
-            if (err) {
-                console.error('Erro ao verificar dados:', err.message);
-                return;
-            }
+        
+        if (row.count === 0) {
+            console.log('Inserindo dados de exemplo de faixas de CEP...');
             
-            if (row.count === 0) {
-                console.log('Inserindo dados de exemplo de faixas de CEP...');
-                
-                const faixasExemplo = [
-                    ['São Paulo Capital', '01000-000', '05999-999', 15.00, 1],
-                    ['Grande São Paulo', '06000-000', '09999-999', 25.00, 1],
-                    ['Interior SP', '10000-000', '19999-999', 35.00, 1],
-                    ['Rio de Janeiro', '20000-000', '28999-999', 30.00, 1],
-                    ['Minas Gerais', '30000-000', '39999-999', 40.00, 1],
-                    ['Brasília', '70000-000', '72999-999', 45.00, 1],
-                    ['Nordeste', '40000-000', '69999-999', 60.00, 1],
-                    ['Sul', '80000-000', '99999-999', 50.00, 1]
-                ];
-                
-                const stmt = db.prepare(`
-                    INSERT INTO faixas_cep (nome, cep_inicio, cep_fim, valor_frete, ativo)
-                    VALUES (?, ?, ?, ?, ?)
-                `);
-                
-                faixasExemplo.forEach(faixa => {
-                    stmt.run(faixa, (err) => {
-                        if (err) {
-                            console.error('Erro ao inserir faixa:', err.message);
-                        }
-                    });
+            const faixasExemplo = [
+                ['São Paulo Capital', '01000-000', '05999-999', 15.00, 1],
+                ['Grande São Paulo', '06000-000', '09999-999', 25.00, 1],
+                ['Interior SP', '10000-000', '19999-999', 35.00, 1],
+                ['Rio de Janeiro', '20000-000', '28999-999', 30.00, 1],
+                ['Minas Gerais', '30000-000', '39999-999', 40.00, 1],
+                ['Brasília', '70000-000', '72999-999', 45.00, 1],
+                ['Nordeste', '40000-000', '69999-999', 60.00, 1],
+                ['Sul', '80000-000', '99999-999', 50.00, 1]
+            ];
+            
+            const stmt = db.prepare(`
+                INSERT INTO faixas_cep (nome, cep_inicio, cep_fim, valor_frete, ativo)
+                VALUES (?, ?, ?, ?, ?)
+            `);
+            
+            faixasExemplo.forEach(faixa => {
+                stmt.run(faixa, (err) => {
+                    if (err) {
+                        console.error('Erro ao inserir faixa:', err.message);
+                    }
                 });
-                
-                stmt.finalize();
-                console.log('Dados de exemplo inseridos.');
-            }
-        });
-    }
-});
+            });
+            
+            stmt.finalize();
+            console.log('Dados de exemplo de frete inseridos.');
+        }
+    });
+}
 
 // API para calcular frete por CEP
 app.get('/api/frete/:cep', (req, res) => {
