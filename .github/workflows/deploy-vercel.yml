@@ -18,9 +18,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+        working-directory: ./catalogo-carrinho
 
       - name: Build
         run: npm run build
+        working-directory: ./catalogo-carrinho
 
       - name: Deploy to Vercel
         # Uses community action to deploy to Vercel. Requires secrets: VERCEL_TOKEN
@@ -28,4 +30,4 @@ jobs:
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
           vercel-args: --prod
-          working-directory: ./
+          working-directory: ./catalogo-carrinho
